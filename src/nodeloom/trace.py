@@ -1,0 +1,187 @@
+"""Trace represents a top-level execution of an AI agent."""
+
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+from nodeloom.span import Span
+from nodeloom.types import SpanType, TraceStatus
+
+if TYPE_CHECKING:
+    from nodeloom.queue import TelemetryQueue
+
+logger = logging.getLogger("nodeloom.trace")
+
+
+class Trace:
+    """A trace groups multiple spans under a single agent execution.
+
+    Traces are NOT thread-safe. Each trace should be driven from one
+    thread. Use as a context manager for automatic lifecycle management:
+
+        with client.trace("my-agent", input={"query": "hi"}) as t:
+            with t.span("llm-call", type=SpanType.LLM) as s:
+                s.set_output({"response": "hello"})
+    """
+
+    def __init__(
+        self,
+        agent_name: str,
+        queue: "TelemetryQueue",
+        input_data: Optional[Dict[str, Any]] = None,
+        agent_version: Optional[str] = None,
+        environment: str = "production",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self._trace_id = str(uuid.uuid4())
+        self._agent_name = agent_name
+        self._agent_version = agent_version
+        self._environment = environment
+        self._queue = queue
+
+        self._input = input_data
+        self._output: Optional[Dict[str, Any]] = None
+        self._metadata = metadata
+        self._error: Optional[str] = None
+        self._status: Optional[TraceStatus] = None
+
+        self._timestamp = datetime.now(timezone.utc).isoformat()
+        self._ended = False
+
+        # Emit trace_start event immediately
+        self._emit_start()
+
+    # -- Properties ----------------------------------------------------------
+
+    @property
+    def trace_id(self) -> str:
+        return self._trace_id
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent_name
+
+    @property
+    def ended(self) -> bool:
+        return self._ended
+
+    # -- Span factory --------------------------------------------------------
+
+    def span(
+        self,
+        name: str,
+        type: SpanType = SpanType.CUSTOM,
+        parent_span_id: Optional[str] = None,
+    ) -> Span:
+        """Create a new span within this trace.
+
+        Args:
+            name: Human-readable label for the operation.
+            type: Classification of the span (LLM, TOOL, etc.).
+            parent_span_id: Optional ID of a parent span for nesting.
+
+        Returns:
+            A new Span instance (also usable as a context manager).
+        """
+        if self._ended:
+            logger.warning(
+                "Creating span on an already-ended trace %s", self._trace_id
+            )
+        return Span(
+            name=name,
+            trace_id=self._trace_id,
+            queue=self._queue,
+            span_type=type,
+            parent_span_id=parent_span_id,
+        )
+
+    # -- Events --------------------------------------------------------------
+
+    def event(
+        self,
+        name: str,
+        level: str = "info",
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Emit a standalone event attached to this trace."""
+        evt: Dict[str, Any] = {
+            "type": "event",
+            "trace_id": self._trace_id,
+            "name": name,
+            "level": level,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if data is not None:
+            evt["data"] = data
+        self._queue.put(evt)
+
+    # -- Lifecycle -----------------------------------------------------------
+
+    def end(
+        self,
+        status: TraceStatus = TraceStatus.SUCCESS,
+        output: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Finalize the trace and enqueue a trace_end event.
+
+        Calling ``end()`` more than once is a no-op (with a warning).
+        """
+        if self._ended:
+            logger.warning("Trace %s already ended", self._trace_id)
+            return
+
+        self._ended = True
+        self._status = status
+        if output is not None:
+            self._output = output
+        if error is not None:
+            self._error = error
+
+        event: Dict[str, Any] = {
+            "type": "trace_end",
+            "trace_id": self._trace_id,
+            "status": status.value,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if self._output is not None:
+            event["output"] = self._output
+        if self._error is not None:
+            event["error"] = self._error
+
+        self._queue.put(event)
+
+    def _emit_start(self) -> None:
+        """Enqueue a trace_start event."""
+        event: Dict[str, Any] = {
+            "type": "trace_start",
+            "trace_id": self._trace_id,
+            "agent_name": self._agent_name,
+            "environment": self._environment,
+            "timestamp": self._timestamp,
+        }
+        if self._agent_version is not None:
+            event["agent_version"] = self._agent_version
+        if self._input is not None:
+            event["input"] = self._input
+        if self._metadata is not None:
+            event["metadata"] = self._metadata
+
+        self._queue.put(event)
+
+    # -- Context manager -----------------------------------------------------
+
+    def __enter__(self) -> "Trace":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore[no-untyped-def]
+        if not self._ended:
+            if exc_type is not None:
+                self.end(
+                    status=TraceStatus.ERROR,
+                    error=f"{exc_type.__name__}: {exc_val}",
+                )
+            else:
+                self.end(status=TraceStatus.SUCCESS)
+        return None
