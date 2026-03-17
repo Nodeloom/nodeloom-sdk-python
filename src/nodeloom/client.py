@@ -64,10 +64,27 @@ class NodeLoomClient:
         )
         self._shutdown_called = False
 
+        self._api: Optional["ApiClient"] = None
+
         if enabled:
             self._processor.start()
 
     # -- Properties ----------------------------------------------------------
+
+    @property
+    def api(self) -> "ApiClient":
+        """Access the REST API client.
+
+        Uses the same API key and endpoint as the telemetry client.
+        SDK tokens can now authenticate against all NodeLoom API endpoints.
+        """
+        if self._api is None:
+            from nodeloom.api import ApiClient
+            self._api = ApiClient(
+                api_key=self._config.api_key,
+                endpoint=self._config.endpoint,
+            )
+        return self._api
 
     @property
     def config(self) -> NodeLoomConfig:
@@ -152,6 +169,8 @@ class NodeLoomClient:
         if self._shutdown_called:
             return
         self._shutdown_called = True
+        if self._api is not None:
+            self._api.close()
         logger.debug("NodeLoomClient shutting down")
 
         if self._config.enabled:
