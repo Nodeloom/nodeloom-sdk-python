@@ -304,6 +304,17 @@ class ApiClient:
             params["to"] = to_date
         return self.request("GET", "/api/sdk/v1/metrics", params=params)
 
+    # ── Agent Callback Operations ──────────────────────────────
+
+    def set_callback_url(self, agent_name: str, callback_url: str) -> Dict[str, Any]:
+        """Register a callback URL for red team testing of an SDK agent."""
+        return self.request("POST", f"/api/sdk/v1/agents/{agent_name}/callback",
+                           body={"callback_url": callback_url})
+
+    def remove_callback_url(self, agent_name: str) -> None:
+        """Remove the callback URL for an SDK agent."""
+        self.request("DELETE", f"/api/sdk/v1/agents/{agent_name}/callback")
+
     def close(self) -> None:
         """Close the underlying HTTP session."""
         self._session.close()
