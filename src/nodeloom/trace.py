@@ -33,11 +33,13 @@ class Trace:
         agent_version: Optional[str] = None,
         environment: str = "production",
         metadata: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> None:
         self._trace_id = str(uuid.uuid4())
         self._agent_name = agent_name
         self._agent_version = agent_version
         self._environment = environment
+        self._session_id = session_id
         self._queue = queue
 
         self._input = input_data
@@ -167,8 +169,29 @@ class Trace:
             event["input"] = self._input
         if self._metadata is not None:
             event["metadata"] = self._metadata
+        if self._session_id is not None:
+            event["session_id"] = self._session_id
 
         self._queue.put(event)
+
+    # -- Feedback ------------------------------------------------------------
+
+    def feedback(self, rating: int, comment: Optional[str] = None) -> None:
+        """Submit feedback for this trace.
+
+        Args:
+            rating: Rating from 1 to 5.
+            comment: Optional comment.
+        """
+        evt: Dict[str, Any] = {
+            "type": "feedback",
+            "trace_id": self._trace_id,
+            "rating": rating,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if comment is not None:
+            evt["comment"] = comment
+        self._queue.put(evt)
 
     # -- Context manager -----------------------------------------------------
 

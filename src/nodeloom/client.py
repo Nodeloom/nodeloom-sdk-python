@@ -102,6 +102,7 @@ class NodeLoomClient:
         input: Optional[Dict[str, Any]] = None,
         agent_version: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> Trace:
         """Start a new trace for an agent execution.
 
@@ -121,6 +122,7 @@ class NodeLoomClient:
             agent_version=agent_version,
             environment=self._config.environment,
             metadata=metadata,
+            session_id=session_id,
         )
 
     def event(
@@ -149,6 +151,63 @@ class NodeLoomClient:
         }
         if data is not None:
             evt["data"] = data
+        self._queue.put(evt)
+
+    def metric(
+        self,
+        name: str,
+        value: float,
+        unit: Optional[str] = None,
+        tags: Optional[Dict[str, str]] = None,
+        trace_id: Optional[str] = None,
+    ) -> None:
+        """Emit a custom metric event.
+
+        Args:
+            name: Metric name (e.g. "latency_p99").
+            value: Numeric value.
+            unit: Optional unit (e.g. "ms", "bytes").
+            tags: Optional key-value tags.
+            trace_id: Optional trace to attach this metric to.
+        """
+        from datetime import datetime, timezone
+
+        evt: Dict[str, Any] = {
+            "type": "metric",
+            "trace_id": trace_id,
+            "metric_name": name,
+            "metric_value": value,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if unit is not None:
+            evt["metric_unit"] = unit
+        if tags is not None:
+            evt["metric_tags"] = tags
+        self._queue.put(evt)
+
+    def feedback(
+        self,
+        trace_id: str,
+        rating: int,
+        comment: Optional[str] = None,
+    ) -> None:
+        """Emit a feedback event tied to a trace.
+
+        Args:
+            trace_id: Trace ID to attach feedback to.
+            rating: Rating from 1 to 5.
+            comment: Optional comment.
+        """
+        from datetime import datetime, timezone
+
+        evt: Dict[str, Any] = {
+            "type": "feedback",
+            "trace_id": trace_id,
+            "rating": rating,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if comment is not None:
+            evt["comment"] = comment
         self._queue.put(evt)
 
     def flush(self) -> None:

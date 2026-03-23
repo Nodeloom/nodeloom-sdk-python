@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-SDK_VERSION = "0.2.0"
+SDK_VERSION = "0.3.0"
 SDK_LANGUAGE = "python"
 
 DEFAULT_ENDPOINT = "https://api.nodeloom.io"

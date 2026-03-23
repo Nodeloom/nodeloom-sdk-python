@@ -146,6 +146,164 @@ class ApiClient:
         body.update(kwargs)
         return self.request("POST", f"/api/guardrails/check", body=body, params={"teamId": team_id})
 
+    # ── Feedback Operations ────────────────────────────────────
+
+    def submit_feedback(
+        self,
+        execution_id: str,
+        rating: int,
+        comment: Optional[str] = None,
+        tags: Optional[Dict[str, str]] = None,
+        trace_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        user_identifier: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Submit feedback for an execution."""
+        body: Dict[str, Any] = {"execution_id": execution_id, "rating": rating}
+        if comment:
+            body["comment"] = comment
+        if tags:
+            body["tags"] = tags
+        if trace_id:
+            body["trace_id"] = trace_id
+        if span_id:
+            body["span_id"] = span_id
+        if user_identifier:
+            body["user_identifier"] = user_identifier
+        return self.request("POST", "/api/sdk/v1/feedback", body=body)
+
+    def list_feedback(
+        self, execution_id: Optional[str] = None, page: int = 0, size: int = 20
+    ) -> Dict[str, Any]:
+        """List feedback for the team."""
+        params: Dict[str, Any] = {"page": page, "size": size}
+        if execution_id:
+            params["execution_id"] = execution_id
+        return self.request("GET", "/api/sdk/v1/feedback", params=params)
+
+    # ── Sentiment Operations ─────────────────────────────────
+
+    def analyze_sentiment(
+        self, text: str, trace_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze text sentiment. Returns sentiment, score, confidence, emotions."""
+        body: Dict[str, Any] = {"text": text}
+        if trace_id:
+            body["trace_id"] = trace_id
+        return self.request("POST", "/api/sdk/v1/sentiment", body=body)
+
+    # ── Cost Operations ──────────────────────────────────────
+
+    def get_costs(
+        self,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get cost summary for the team."""
+        params: Dict[str, Any] = {}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        if workflow_id:
+            params["workflow_id"] = workflow_id
+        return self.request("GET", "/api/sdk/v1/costs", params=params)
+
+    # ── Webhook Operations ───────────────────────────────────
+
+    def register_webhook(
+        self,
+        url: str,
+        secret: Optional[str] = None,
+        event_types: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Register an alert webhook."""
+        body: Dict[str, Any] = {"url": url}
+        if secret:
+            body["secret"] = secret
+        if event_types:
+            body["event_types"] = event_types
+        return self.request("POST", "/api/sdk/v1/alerts/webhooks", body=body)
+
+    def list_webhooks(self) -> List[Dict[str, Any]]:
+        """List registered alert webhooks."""
+        return self.request("GET", "/api/sdk/v1/alerts/webhooks")
+
+    def delete_webhook(self, webhook_id: str) -> None:
+        """Delete an alert webhook."""
+        self.request("DELETE", f"/api/sdk/v1/alerts/webhooks/{webhook_id}")
+
+    # ── Prompt Operations ────────────────────────────────────
+
+    def create_prompt(
+        self,
+        name: str,
+        content: str,
+        description: Optional[str] = None,
+        variables: Optional[Dict[str, Any]] = None,
+        model_hint: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create or update a prompt template with a new version."""
+        body: Dict[str, Any] = {"name": name, "content": content}
+        if description:
+            body["description"] = description
+        if variables:
+            body["variables"] = variables
+        if model_hint:
+            body["model_hint"] = model_hint
+        return self.request("POST", "/api/sdk/v1/prompts", body=body)
+
+    def get_prompt(
+        self, name: str, version: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Get a prompt template. Returns latest version if version not specified."""
+        params = {"version": version} if version else None
+        return self.request("GET", f"/api/sdk/v1/prompts/{name}", params=params)
+
+    def list_prompts(self) -> List[Dict[str, Any]]:
+        """List all prompt templates for the team."""
+        return self.request("GET", "/api/sdk/v1/prompts")
+
+    # ── Red Team Operations ──────────────────────────────────
+
+    def start_red_team_scan(
+        self, workflow_id: str, categories: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Start a red team scan against a workflow/agent."""
+        body: Dict[str, Any] = {"workflow_id": workflow_id}
+        if categories:
+            body["categories"] = categories
+        return self.request("POST", "/api/sdk/v1/redteam/scan", body=body)
+
+    def get_red_team_scan(self, scan_id: str) -> Dict[str, Any]:
+        """Get red team scan status and results."""
+        return self.request("GET", f"/api/sdk/v1/redteam/scan/{scan_id}")
+
+    # ── Evaluation Operations ────────────────────────────────
+
+    def trigger_evaluation(self, execution_id: str) -> Dict[str, Any]:
+        """Trigger LLM-as-Judge evaluation for an execution."""
+        return self.request("POST", "/api/sdk/v1/evaluate", body={"execution_id": execution_id})
+
+    # ── Metrics Operations ───────────────────────────────────
+
+    def get_metrics(
+        self,
+        name: Optional[str] = None,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get custom metrics aggregation."""
+        params: Dict[str, Any] = {}
+        if name:
+            params["name"] = name
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        return self.request("GET", "/api/sdk/v1/metrics", params=params)
+
     def close(self) -> None:
         """Close the underlying HTTP session."""
         self._session.close()

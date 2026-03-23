@@ -45,6 +45,8 @@ class Span:
         self._error: Optional[str] = None
         self._status: TraceStatus = TraceStatus.SUCCESS
         self._token_usage: Optional[Dict[str, Any]] = None
+        self._prompt_template: Optional[str] = None
+        self._prompt_version: Optional[int] = None
 
         self._timestamp = datetime.now(timezone.utc).isoformat()
         self._end_timestamp: Optional[str] = None
@@ -106,6 +108,34 @@ class Span:
             self._token_usage["model"] = model
         return self
 
+    def set_prompt(self, template: str, version: int) -> "Span":
+        """Record which prompt template and version was used."""
+        self._prompt_template = template
+        self._prompt_version = version
+        return self
+
+    def metric(
+        self,
+        name: str,
+        value: float,
+        unit: Optional[str] = None,
+        tags: Optional[Dict[str, str]] = None,
+    ) -> "Span":
+        """Emit a custom metric tied to this span's trace."""
+        evt: Dict[str, Any] = {
+            "type": "metric",
+            "trace_id": self._trace_id,
+            "metric_name": name,
+            "metric_value": value,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if unit is not None:
+            evt["metric_unit"] = unit
+        if tags is not None:
+            evt["metric_tags"] = tags
+        self._queue.put(evt)
+        return self
+
     # -- Lifecycle -----------------------------------------------------------
 
     def end(
@@ -152,6 +182,10 @@ class Span:
             event["error"] = self._error
         if self._token_usage is not None:
             event["token_usage"] = self._token_usage
+        if self._prompt_template is not None:
+            event["prompt_template"] = self._prompt_template
+        if self._prompt_version is not None:
+            event["prompt_version"] = self._prompt_version
         return event
 
     # -- Context manager -----------------------------------------------------
