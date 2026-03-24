@@ -315,6 +315,10 @@ class ApiClient:
         """Remove the callback URL for an SDK agent."""
         self.request("DELETE", f"/api/sdk/v1/agents/{agent_name}/callback")
 
+    def get_guardrail_config(self, agent_name: str) -> Dict[str, Any]:
+        """Get the current guardrail configuration for an SDK agent (read-only). Configure via NodeLoom UI."""
+        return self.request("GET", f"/api/sdk/v1/agents/{agent_name}/guardrails")
+
     def close(self) -> None:
         """Close the underlying HTTP session."""
         self._session.close()

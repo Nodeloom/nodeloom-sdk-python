@@ -94,7 +94,7 @@ class TestHttpTransport(unittest.TestCase):
         call_kwargs = mock_session.post.call_args
         payload = call_kwargs[1]["json"]
         self.assertEqual(len(payload["events"]), 2)
-        self.assertEqual(payload["sdk_version"], "0.4.0")
+        self.assertEqual(payload["sdk_version"], "0.5.0")
         self.assertEqual(payload["sdk_language"], "python")
 
     @patch("nodeloom.transport.requests.Session")
