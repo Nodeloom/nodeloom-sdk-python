@@ -257,5 +257,41 @@ class TestNodeLoomImport(unittest.TestCase):
         self.assertTrue(hasattr(nodeloom, "__version__"))
 
 
+class TestFrameworkDetection(unittest.TestCase):
+    """Tests for AI framework auto-detection."""
+
+    def test_detect_custom_when_no_framework(self):
+        result = NodeLoomClient._detect_framework()
+        # In test environment, no AI frameworks installed
+        self.assertEqual(result[0], "custom")
+        self.assertIsNone(result[1])
+
+    @patch("importlib.import_module")
+    def test_detect_langchain(self, mock_import):
+        mock_module = MagicMock()
+        mock_module.__version__ = "0.1.0"
+        mock_import.return_value = mock_module
+
+        result = NodeLoomClient._detect_framework()
+        self.assertEqual(result[0], "langchain")
+        self.assertEqual(result[1], "0.1.0")
+
+    @patch("nodeloom.client.BatchProcessor")
+    @patch("nodeloom.client.HttpTransport")
+    @patch("nodeloom.client.TelemetryQueue")
+    def test_framework_passed_to_trace(self, mock_queue_cls, mock_transport_cls, mock_processor_cls):
+        client = NodeLoomClient(api_key="sdk_test123")
+        trace = client.trace("my-agent")
+
+        # The trace_start event should include sdk_language
+        queue_instance = mock_queue_cls.return_value
+        # Find the trace_start call
+        for call in queue_instance.put.call_args_list:
+            event = call[0][0]
+            if event.get("type") == "trace_start":
+                self.assertEqual(event["sdk_language"], "python")
+                break
+
+
 if __name__ == "__main__":
     unittest.main()

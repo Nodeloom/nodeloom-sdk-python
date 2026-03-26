@@ -34,12 +34,16 @@ class Trace:
         environment: str = "production",
         metadata: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
+        framework: Optional[str] = None,
+        framework_version: Optional[str] = None,
     ) -> None:
         self._trace_id = str(uuid.uuid4())
         self._agent_name = agent_name
         self._agent_version = agent_version
         self._environment = environment
         self._session_id = session_id
+        self._framework = framework
+        self._framework_version = framework_version
         self._queue = queue
 
         self._input = input_data
@@ -171,6 +175,11 @@ class Trace:
             event["metadata"] = self._metadata
         if self._session_id is not None:
             event["session_id"] = self._session_id
+        if self._framework is not None:
+            event["framework"] = self._framework
+        if self._framework_version is not None:
+            event["framework_version"] = self._framework_version
+        event["sdk_language"] = "python"
 
         self._queue.put(event)
 

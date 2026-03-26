@@ -1,7 +1,8 @@
 """NodeLoomClient is the main entry point for the SDK."""
 
+import importlib
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from nodeloom.batch_processor import BatchProcessor
 from nodeloom.config import NodeLoomConfig
@@ -66,6 +67,9 @@ class NodeLoomClient:
 
         self._api: Optional["ApiClient"] = None
 
+        # Auto-detect AI framework
+        self._framework, self._framework_version = self._detect_framework()
+
         if enabled:
             self._processor.start()
 
@@ -93,6 +97,22 @@ class NodeLoomClient:
     @property
     def is_enabled(self) -> bool:
         return self._config.enabled
+
+    @staticmethod
+    def _detect_framework() -> Tuple[Optional[str], Optional[str]]:
+        """Auto-detect which AI framework is installed."""
+        for mod, name in [
+            ("langchain", "langchain"),
+            ("crewai", "crewai"),
+            ("autogen", "autogen"),
+            ("llama_index", "llamaindex"),
+        ]:
+            try:
+                lib = importlib.import_module(mod)
+                return name, getattr(lib, "__version__", None)
+            except ImportError:
+                pass
+        return "custom", None
 
     # -- Public API ----------------------------------------------------------
 
@@ -123,6 +143,8 @@ class NodeLoomClient:
             environment=self._config.environment,
             metadata=metadata,
             session_id=session_id,
+            framework=self._framework,
+            framework_version=self._framework_version,
         )
 
     def event(

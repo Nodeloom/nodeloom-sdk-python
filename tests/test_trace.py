@@ -57,6 +57,38 @@ class TestTraceCreation(unittest.TestCase):
         self.assertFalse(trace.ended)
         self.assertIsNotNone(trace.trace_id)
 
+    def test_trace_start_includes_framework(self):
+        trace = Trace(
+            "agent",
+            queue=self.queue,
+            framework="langchain",
+            framework_version="0.1.0",
+        )
+
+        event = self.queue.put.call_args[0][0]
+        self.assertEqual(event["framework"], "langchain")
+        self.assertEqual(event["framework_version"], "0.1.0")
+        self.assertEqual(event["sdk_language"], "python")
+
+    def test_trace_start_without_framework(self):
+        trace = Trace("agent", queue=self.queue)
+
+        event = self.queue.put.call_args[0][0]
+        self.assertNotIn("framework", event)
+        self.assertNotIn("framework_version", event)
+        self.assertEqual(event["sdk_language"], "python")
+
+    def test_trace_start_with_framework_no_version(self):
+        trace = Trace(
+            "agent",
+            queue=self.queue,
+            framework="custom",
+        )
+
+        event = self.queue.put.call_args[0][0]
+        self.assertEqual(event["framework"], "custom")
+        self.assertNotIn("framework_version", event)
+
 
 class TestTraceEnd(unittest.TestCase):
     """Tests for trace finalization."""
