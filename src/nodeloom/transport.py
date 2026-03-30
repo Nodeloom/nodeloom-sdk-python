@@ -79,8 +79,9 @@ class HttpTransport:
                 # Retry on server errors (5xx) and 429 (rate limit).
                 # Other client errors (4xx) are not retryable.
                 if 500 <= response.status_code < 600 or response.status_code == 429:
+                    truncated_body = (response.text[:1000] + "...") if len(response.text) > 1000 else response.text
                     last_error = Exception(
-                        f"Server error {response.status_code}: {response.text}"
+                        f"Server error {response.status_code}: {truncated_body}"
                     )
                     logger.warning(
                         "Batch send failed (attempt %d/%d): HTTP %d",
@@ -90,10 +91,11 @@ class HttpTransport:
                     )
                 else:
                     # Client errors are not retryable
+                    truncated_text = (response.text[:1000] + "...") if len(response.text) > 1000 else response.text
                     logger.error(
                         "Batch send failed with client error HTTP %d: %s",
                         response.status_code,
-                        response.text,
+                        truncated_text,
                     )
                     return None
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-SDK_VERSION = "0.6.0"
+SDK_VERSION = "0.7.0"
 SDK_LANGUAGE = "python"
 
 DEFAULT_ENDPOINT = "https://api.nodeloom.io"
@@ -41,9 +41,21 @@ class NodeLoomConfig:
     timeout: float = DEFAULT_TIMEOUT
     enabled: bool = True
 
+    def __repr__(self) -> str:
+        masked_key = self.api_key[:6] + "***" if self.api_key and len(self.api_key) > 6 else "***"
+        return (f"NodeLoomConfig(api_key='{masked_key}', endpoint='{self.endpoint}', "
+                f"environment='{self.environment}')")
+
     def __post_init__(self) -> None:
         if not self.api_key:
             raise ValueError("api_key is required")
+        if self.endpoint and not self.endpoint.startswith("https://") and "localhost" not in self.endpoint and "127.0.0.1" not in self.endpoint:
+            import warnings
+            warnings.warn(
+                f"NodeLoom endpoint '{self.endpoint}' does not use HTTPS. "
+                "API keys will be sent in plaintext. Use HTTPS in production.",
+                stacklevel=2,
+            )
         if self.batch_size < 1:
             raise ValueError("batch_size must be at least 1")
         if self.flush_interval <= 0:
