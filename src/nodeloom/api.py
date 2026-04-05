@@ -114,6 +114,7 @@ class ApiClient:
         apply_custom_rules: bool = False,
         detect_semantic_manipulation: bool = False,
         on_violation: str = "BLOCKED",
+        agent_name: Optional[str] = None,
         **kwargs,
     ) -> Dict[str, Any]:
         """Run guardrail checks on text content.
@@ -127,6 +128,7 @@ class ApiClient:
             apply_custom_rules: Apply team's custom guardrail rules
             detect_semantic_manipulation: Check semantic similarity against reference embeddings
             on_violation: Action on violation - "BLOCKED", "WARNED", or "LOGGED"
+            agent_name: SDK agent name (enables incident playbook dispatch on violations)
             **kwargs: Additional config options (injectionSensitivity, piiTypes, etc.)
 
         Returns:
@@ -143,6 +145,8 @@ class ApiClient:
             body["applyCustomRules"] = True
         if detect_semantic_manipulation:
             body["detectSemanticManipulation"] = True
+        if agent_name:
+            body["agentName"] = agent_name
         body.update(kwargs)
         return self.request("POST", f"/api/guardrails/check", body=body, params={"teamId": team_id})
 
