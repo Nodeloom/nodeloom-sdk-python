@@ -1,0 +1,5 @@
+{
+  "ok": false,
+  "error": "Could not detect supported target files in /Users/reda/nodeloom-sdk-python.\nPlease see our documentation for supported languages and target files: https://snyk.co/udVgQ and make sure you are in the right directory.",
+  "path": "/Users/reda/nodeloom-sdk-python"
+}
