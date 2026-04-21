@@ -169,6 +169,39 @@ class TestSessionContext:
         # span.end() called once for tool_result (not during tool_use since it has an id)
         assert tool_span.end.call_count >= 1
 
+    def test_dangling_tool_span_ended_on_session_exit(self):
+        # If a tool_use arrives but the matching tool_result never comes
+        # before the session ends, the span would otherwise stay open.
+        # The drain path closes it so the trace's span tree is consistent.
+        client, trace, _ = make_client()
+        tool_span = MagicMock()
+        trace.span.return_value = tool_span
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)
+
+        with handler.trace_session("sess_dangling") as ctx:
+            ctx.on_event(MockEvent("agent.tool_use", name="bash", input={"cmd": "ls"}, id="tool_open"))
+            # no matching agent.tool_result — session ends with the span still active
+
+        assert tool_span.end.called, "dangling tool span should be closed on session exit"
+        # After drain, active spans dict is empty.
+        assert ctx._active_spans == {}
+
+    def test_dangling_tool_span_ended_on_exception(self):
+        # Same invariant but exercised through the exception path: tool span
+        # started, exception raised before tool_result — drain still runs.
+        client, trace, _ = make_client()
+        tool_span = MagicMock()
+        trace.span.return_value = tool_span
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)
+
+        with pytest.raises(ValueError):
+            with handler.trace_session("sess_exc") as ctx:
+                ctx.on_event(MockEvent("agent.tool_use", name="bash", input={"cmd": "ls"}, id="tool_x"))
+                raise ValueError("stream aborted")
+
+        assert tool_span.end.called
+        trace.end.assert_called_with(status="error", output={"error": "stream aborted"})
+
     def test_trace_ends_with_success(self):
         client, trace, span = make_client()
         handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)

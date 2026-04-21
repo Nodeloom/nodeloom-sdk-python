@@ -66,9 +66,11 @@ class ManagedAgentsHandler:
         try:
             yield ctx
         except Exception as e:
+            ctx._drain_active_spans()
             trace.end(status="error", output={"error": str(e)})
             raise
         else:
+            ctx._drain_active_spans()
             trace.end(status="success", output=ctx._last_output)
 
     def check_input(self, text: str, **kwargs) -> dict:
@@ -116,6 +118,16 @@ class _SessionContext:
         self._agent_name = agent_name
         self._last_output = None
         self._active_spans = {}
+
+    def _drain_active_spans(self) -> None:
+        # End any tool spans whose matching agent.tool_result never arrived
+        # before ending the trace. Matches the Java and TypeScript handlers.
+        for span in self._active_spans.values():
+            try:
+                span.end()
+            except Exception:
+                logger.debug("failed to end dangling span during drain", exc_info=True)
+        self._active_spans.clear()
 
     def on_event(self, event) -> None:
         """Process an Anthropic SSE event and create appropriate spans.
