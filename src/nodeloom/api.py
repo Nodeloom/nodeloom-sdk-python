@@ -21,11 +21,18 @@ class ApiClient:
     attach the id automatically (Phase 2 required-guardrail enforcement).
     """
 
+    # requests has no default timeout; without one a slow or hung backend
+    # would block every caller forever. Match the other SDKs (Go/Java/TS
+    # all use 30s) so behavior is consistent across languages.
+    DEFAULT_TIMEOUT_SECONDS = 30.0
+
     def __init__(self, api_key: str, endpoint: str = "https://api.nodeloom.io",
-                 control_registry: Optional[ControlRegistry] = None) -> None:
+                 control_registry: Optional[ControlRegistry] = None,
+                 request_timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._api_key = api_key
         self._endpoint = endpoint.rstrip("/")
         self._control_registry = control_registry
+        self._request_timeout_seconds = request_timeout_seconds
         self._session = requests.Session()
         self._session.headers.update({
             "Content-Type": "application/json",
@@ -59,6 +66,7 @@ class ApiClient:
             url=url,
             json=body,
             params=params,
+            timeout=self._request_timeout_seconds,
         )
         if not response.ok:
             error_body = None

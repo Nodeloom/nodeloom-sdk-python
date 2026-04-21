@@ -106,6 +106,7 @@ class NodeLoomClient:
                 api_key=self._config.api_key,
                 endpoint=self._config.endpoint,
                 control_registry=self._control_registry,
+                request_timeout_seconds=self._config.timeout,
             )
         return self._api
 
