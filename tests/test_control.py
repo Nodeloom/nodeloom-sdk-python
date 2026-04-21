@@ -99,6 +99,54 @@ class ControlRegistryTests(unittest.TestCase):
         registry.record_guardrail_session("agent-1", "", 300, time.monotonic())
         self.assertIsNone(registry.take_guardrail_session("agent-1", time.monotonic()))
 
+    def test_ttl_is_clamped_when_payload_returns_garbage(self):
+        """Guard against a buggy backend returning a negative or huge TTL."""
+        registry = ControlRegistry()
+        # Negative TTL → falls back to 300s default
+        registry.update_from_payload({
+            "agent_name": "agent-1",
+            "halted": False,
+            "halt_source": "none",
+            "revision": 1,
+            "require_guardrails": "OFF",
+            "guardrail_session_ttl_seconds": -5,
+        })
+        self.assertEqual(registry.get("agent-1").guardrail_session_ttl_seconds, 300)
+        # Huge TTL → also clamped
+        registry.update_from_payload({
+            "agent_name": "agent-1",
+            "halted": False,
+            "halt_source": "none",
+            "revision": 2,
+            "require_guardrails": "OFF",
+            "guardrail_session_ttl_seconds": 10 ** 12,
+        })
+        self.assertEqual(registry.get("agent-1").guardrail_session_ttl_seconds, 300)
+
+    def test_agent_source_payload_does_not_clear_team_halt(self):
+        """Regression guard: agent-sourced payloads must never mutate team-wide state."""
+        registry = ControlRegistry()
+        # Team halt arrives with high revision
+        registry.update_from_payload({
+            "agent_name": "agent-1",
+            "halted": True,
+            "halt_source": "team",
+            "halt_reason": "incident",
+            "revision": 1_000_000,
+            "require_guardrails": "OFF",
+        })
+        # Stale or equal-revision agent-source payload arrives with halted=False
+        registry.update_from_payload({
+            "agent_name": "agent-1",
+            "halted": False,
+            "halt_source": "agent",
+            "revision": 2_000_000,  # even a higher revision
+            "require_guardrails": "OFF",
+        })
+        # Team halt must still be active
+        self.assertTrue(registry.get("agent-1").halted)
+        self.assertEqual(registry.get("agent-1").halt_source, "team")
+
 
 class TraceHaltTests(unittest.TestCase):
 

@@ -138,21 +138,22 @@ class ControlRegistry:
         halt_source = payload.get("halt_source") or "none"
         halt_reason = payload.get("halt_reason")
         require_guardrails = (payload.get("require_guardrails") or "OFF").upper()
-        ttl = int(payload.get("guardrail_session_ttl_seconds", 300) or 300)
+        # Clamp TTL to a sane range: the backend default is 300s; anything
+        # outside [1, 86_400] is treated as garbage and replaced with the
+        # default. Protects against a buggy/malicious server.
+        raw_ttl = int(payload.get("guardrail_session_ttl_seconds", 300) or 300)
+        ttl = raw_ttl if 1 <= raw_ttl <= 86_400 else 300
 
         with self._lock:
-            # Team-wide flag derived from halt_source.
-            if halt_source == "team":
-                if revision >= self._team_revision:
-                    self._team_halted = halted
-                    self._team_halt_reason = halt_reason
-                    self._team_revision = revision
-            else:
-                # An agent-source payload that says "not halted by team" implies the
-                # team-wide flag is currently off; only clear if revision is fresher.
-                if not halted and revision >= self._team_revision:
-                    self._team_halted = False
-                    self._team_halt_reason = None
+            # Team-wide flag derived from halt_source. Agent-source payloads never
+            # mutate team state: only team-source payloads can set or clear the
+            # team-wide halt, and only when their revision is fresher. This
+            # prevents a piggy-backed agent response arriving late from clobbering
+            # a team halt that was issued after it.
+            if halt_source == "team" and revision >= self._team_revision:
+                self._team_halted = halted
+                self._team_halt_reason = halt_reason
+                self._team_revision = revision
 
             if not agent_name:
                 return
