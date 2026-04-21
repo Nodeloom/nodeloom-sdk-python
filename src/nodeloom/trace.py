@@ -1,10 +1,12 @@
 """Trace represents a top-level execution of an AI agent."""
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
+from nodeloom.control import ControlRegistry, raise_if_halted
 from nodeloom.span import Span
 from nodeloom.types import SpanType, TraceStatus
 
@@ -36,7 +38,14 @@ class Trace:
         session_id: Optional[str] = None,
         framework: Optional[str] = None,
         framework_version: Optional[str] = None,
+        control_registry: Optional[ControlRegistry] = None,
     ) -> None:
+        self._control_registry = control_registry
+        # Fail-fast on halted agents BEFORE allocating any state, so callers
+        # see AgentHaltedError as a synchronous, no-side-effect failure.
+        if control_registry is not None:
+            raise_if_halted(control_registry, agent_name)
+
         self._trace_id = str(uuid.uuid4())
         self._agent_name = agent_name
         self._agent_version = agent_version
@@ -180,6 +189,16 @@ class Trace:
         if self._framework_version is not None:
             event["framework_version"] = self._framework_version
         event["sdk_language"] = "python"
+
+        # Phase 2: attach the cached guardrail session id so HARD-mode
+        # required-guardrail enforcement on the backend can correlate this
+        # trace with a recent check_guardrails call.
+        if self._control_registry is not None:
+            session_id = self._control_registry.take_guardrail_session(
+                self._agent_name, time.monotonic()
+            )
+            if session_id:
+                event["guardrail_session_id"] = session_id
 
         self._queue.put(event)
 

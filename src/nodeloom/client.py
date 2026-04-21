@@ -5,7 +5,9 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from nodeloom.batch_processor import BatchProcessor
-from nodeloom.config import NodeLoomConfig
+from nodeloom.config import NodeLoomConfig, DEFAULT_CONTROL_POLL_INTERVAL
+from nodeloom.control import AgentHaltedError, ControlRegistry  # noqa: F401  (re-exported)
+from nodeloom.control_poller import ControlPoller
 from nodeloom.queue import TelemetryQueue
 from nodeloom.trace import Trace
 from nodeloom.transport import HttpTransport
@@ -44,6 +46,7 @@ class NodeLoomClient:
         queue_max_size: int = 10000,
         timeout: float = 10.0,
         enabled: bool = True,
+        control_poll_interval: float = DEFAULT_CONTROL_POLL_INTERVAL,
     ) -> None:
         self._config = NodeLoomConfig(
             api_key=api_key,
@@ -55,9 +58,11 @@ class NodeLoomClient:
             queue_max_size=queue_max_size,
             timeout=timeout,
             enabled=enabled,
+            control_poll_interval=control_poll_interval,
         )
+        self._control_registry = ControlRegistry()
         self._queue = TelemetryQueue(max_size=queue_max_size)
-        self._transport = HttpTransport(self._config)
+        self._transport = HttpTransport(self._config, control_registry=self._control_registry)
         self._processor = BatchProcessor(
             config=self._config,
             telemetry_queue=self._queue,
@@ -70,8 +75,21 @@ class NodeLoomClient:
         # Auto-detect AI framework
         self._framework, self._framework_version = self._detect_framework()
 
+        # Standalone control poll thread refreshes registry for sparse-traffic
+        # agents. Telemetry batches already piggy-back the control payload, so
+        # this is just belt-and-braces.
+        self._poller: Optional[ControlPoller] = None
+        if enabled and control_poll_interval > 0:
+            self._poller = ControlPoller(
+                registry=self._control_registry,
+                api_factory=lambda: self.api,
+                interval_seconds=control_poll_interval,
+            )
+
         if enabled:
             self._processor.start()
+            if self._poller is not None:
+                self._poller.start()
 
     # -- Properties ----------------------------------------------------------
 
@@ -87,6 +105,7 @@ class NodeLoomClient:
             self._api = ApiClient(
                 api_key=self._config.api_key,
                 endpoint=self._config.endpoint,
+                control_registry=self._control_registry,
             )
         return self._api
 
@@ -145,6 +164,7 @@ class NodeLoomClient:
             session_id=session_id,
             framework=self._framework,
             framework_version=self._framework_version,
+            control_registry=self._control_registry,
         )
 
     def event(
@@ -250,6 +270,8 @@ class NodeLoomClient:
         if self._shutdown_called:
             return
         self._shutdown_called = True
+        if self._poller is not None:
+            self._poller.shutdown(timeout=2.0)
         if self._api is not None:
             self._api.close()
         logger.debug("NodeLoomClient shutting down")

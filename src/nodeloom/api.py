@@ -4,19 +4,28 @@ SDK tokens can authenticate against all NodeLoom API endpoints.
 This module provides a typed client for common operations.
 """
 
+import time
 import requests
 from typing import Any, Dict, List, Optional
+
+from nodeloom.control import ControlRegistry
 
 
 class ApiClient:
     """HTTP client for the NodeLoom REST API.
 
     Uses the same SDK token and endpoint as the telemetry client.
+
+    When a :class:`ControlRegistry` is supplied, ``check_guardrails`` updates
+    it with any returned ``guardrailSessionId`` so subsequent traces can
+    attach the id automatically (Phase 2 required-guardrail enforcement).
     """
 
-    def __init__(self, api_key: str, endpoint: str = "https://api.nodeloom.io") -> None:
+    def __init__(self, api_key: str, endpoint: str = "https://api.nodeloom.io",
+                 control_registry: Optional[ControlRegistry] = None) -> None:
         self._api_key = api_key
         self._endpoint = endpoint.rstrip("/")
+        self._control_registry = control_registry
         self._session = requests.Session()
         self._session.headers.update({
             "Content-Type": "application/json",
@@ -148,7 +157,25 @@ class ApiClient:
         if agent_name:
             body["agentName"] = agent_name
         body.update(kwargs)
-        return self.request("POST", f"/api/guardrails/check", body=body, params={"teamId": team_id})
+        response = self.request("POST", f"/api/guardrails/check", body=body, params={"teamId": team_id})
+
+        # Cache the guardrail session id (when present) so the next trace_start
+        # can attach it for HARD-mode required-guardrail enforcement.
+        if (
+            self._control_registry is not None
+            and isinstance(response, dict)
+            and agent_name
+        ):
+            session_id = response.get("guardrailSessionId")
+            if session_id:
+                # The backend's TTL is also returned via control payloads; default
+                # to 300s when we have no fresher value in the registry.
+                state = self._control_registry.get(agent_name)
+                ttl = state.guardrail_session_ttl_seconds or 300
+                self._control_registry.record_guardrail_session(
+                    agent_name, session_id, ttl, time.monotonic()
+                )
+        return response
 
     # ── Feedback Operations ────────────────────────────────────
 
@@ -322,6 +349,23 @@ class ApiClient:
     def get_guardrail_config(self, agent_name: str) -> Dict[str, Any]:
         """Get the current guardrail configuration for an SDK agent (read-only). Configure via NodeLoom UI."""
         return self.request("GET", f"/api/sdk/v1/agents/{agent_name}/guardrails")
+
+    # ── Remote Control (kill switch) ──────────────────────────────
+
+    def get_agent_control(self, agent_name: str) -> Dict[str, Any]:
+        """Fetch the current remote-control payload for an agent.
+
+        Returns ``{halted, halt_reason, halt_source, revision,
+        require_guardrails, guardrail_session_ttl_seconds, ...}``.
+
+        When a :class:`ControlRegistry` is configured on this client, the
+        registry is updated with the response so subsequent trace operations
+        immediately observe the latest state.
+        """
+        response = self.request("GET", f"/api/sdk/v1/agents/{agent_name}/control")
+        if self._control_registry is not None and isinstance(response, dict):
+            self._control_registry.update_from_payload(response)
+        return response
 
     def close(self) -> None:
         """Close the underlying HTTP session."""
