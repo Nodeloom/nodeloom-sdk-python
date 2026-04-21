@@ -115,6 +115,25 @@ class TestSessionContext:
 
         client.event.assert_called_once()
 
+    def test_guardrail_check_failure_is_logged_not_swallowed(self, caplog):
+        # A failing guardrail check during output handling must not crash the
+        # stream, but must also not disappear silently — it should log so
+        # operators can diagnose API/network issues in production.
+        import logging
+        client, trace, span = make_client()
+        client.api.check_guardrails.side_effect = RuntimeError("backend 503")
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=True)
+
+        with caplog.at_level(logging.DEBUG, logger="nodeloom.anthropic"):
+            with handler.trace_session("sess_fail") as ctx:
+                event = MockEvent("agent.message", content=[MockContentBlock("hello")])
+                ctx.on_event(event)
+
+        # Stream kept running; trace completed normally.
+        trace.end.assert_called_with(status="success", output={"text": "hello"})
+        # The exception was captured, not lost.
+        assert any("guardrail output check failed" in r.message for r in caplog.records)
+
     def test_context_handles_exception(self):
         client, trace, span = make_client()
         handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)

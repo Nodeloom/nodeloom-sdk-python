@@ -26,8 +26,11 @@ Usage:
                     break
 """
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Optional
+
+logger = logging.getLogger("nodeloom.anthropic")
 
 
 class ManagedAgentsHandler:
@@ -176,7 +179,7 @@ class _SessionContext:
                             "violations": result.get("violations", []),
                         })
                 except Exception:
-                    pass
+                    logger.debug("guardrail output check failed", exc_info=True)
         span.end()
 
     def _handle_tool_use(self, event):
