@@ -59,7 +59,7 @@ class ManagedAgentsHandler:
         if self._agent_version:
             trace._agent_version = self._agent_version
 
-        ctx = _SessionContext(trace, self._client, self._guardrails)
+        ctx = _SessionContext(trace, self._client, self._guardrails, self._agent_name)
         try:
             yield ctx
         except Exception as e:
@@ -71,9 +71,14 @@ class ManagedAgentsHandler:
     def check_input(self, text: str, **kwargs) -> dict:
         """Run guardrail checks on input text before sending to the agent.
 
+        Always tags the check with the handler's agent_name so the backend
+        can bind the returned guardrail session id to this agent (required
+        for HARD-mode enforcement) and dispatch incident playbooks.
+
         Returns:
             Guardrail result dict with 'passed', 'violations', 'redactedContent'.
         """
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             detect_prompt_injection=True,
@@ -84,9 +89,12 @@ class ManagedAgentsHandler:
     def check_output(self, text: str, **kwargs) -> dict:
         """Run guardrail checks on agent output before showing to the user.
 
+        Same agent_name binding as :meth:`check_input`.
+
         Returns:
             Guardrail result dict with 'passed', 'violations', 'redactedContent'.
         """
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             redact_pii=True,
@@ -98,10 +106,11 @@ class ManagedAgentsHandler:
 class _SessionContext:
     """Internal context for tracking events within a session trace."""
 
-    def __init__(self, trace, client, guardrails: bool):
+    def __init__(self, trace, client, guardrails: bool, agent_name: str):
         self._trace = trace
         self._client = client
         self._guardrails = guardrails
+        self._agent_name = agent_name
         self._last_output = None
         self._active_spans = {}
 
@@ -131,6 +140,7 @@ class _SessionContext:
         """Run guardrail checks on input text."""
         if not self._guardrails:
             return {"passed": True, "violations": []}
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             detect_prompt_injection=True,
@@ -142,6 +152,7 @@ class _SessionContext:
         """Run guardrail checks on agent output."""
         if not self._guardrails:
             return {"passed": True, "violations": []}
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             redact_pii=True,

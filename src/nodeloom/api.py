@@ -115,8 +115,8 @@ class ApiClient:
 
     def check_guardrails(
         self,
-        team_id: str,
         text: str,
+        team_id: Optional[str] = None,
         detect_prompt_injection: bool = False,
         redact_pii: bool = False,
         filter_content: bool = False,
@@ -129,19 +129,23 @@ class ApiClient:
         """Run guardrail checks on text content.
 
         Args:
-            team_id: Team ID
-            text: Text content to check
+            text: Text content to check (required).
+            team_id: Team ID. Optional when using SDK token auth — the backend
+                infers the team from the token.
             detect_prompt_injection: Check for prompt injection attacks
             redact_pii: Detect and redact PII (emails, SSNs, etc.)
             filter_content: Filter harmful content
             apply_custom_rules: Apply team's custom guardrail rules
             detect_semantic_manipulation: Check semantic similarity against reference embeddings
             on_violation: Action on violation - "BLOCKED", "WARNED", or "LOGGED"
-            agent_name: SDK agent name (enables incident playbook dispatch on violations)
+            agent_name: SDK agent name. Required to bind the returned
+                guardrail session id to the agent for HARD-mode enforcement
+                and to dispatch incident playbooks on violations.
             **kwargs: Additional config options (injectionSensitivity, piiTypes, etc.)
 
         Returns:
-            Dict with keys: passed (bool), violations (list), redactedContent (str), checks (list)
+            Dict with keys: passed (bool), violations (list), redactedContent (str),
+            checks (list), guardrailSessionId (Optional[str]).
         """
         body: Dict[str, Any] = {"text": text, "onViolation": on_violation}
         if detect_prompt_injection:
@@ -157,7 +161,10 @@ class ApiClient:
         if agent_name:
             body["agentName"] = agent_name
         body.update(kwargs)
-        response = self.request("POST", f"/api/guardrails/check", body=body, params={"teamId": team_id})
+        # Only include teamId when provided; SDK-token auth lets the backend
+        # infer the team from the token so the caller can omit it.
+        params = {"teamId": team_id} if team_id else None
+        response = self.request("POST", f"/api/guardrails/check", body=body, params=params)
 
         # Cache the guardrail session id (when present) so the next trace_start
         # can attach it for HARD-mode required-guardrail enforcement.

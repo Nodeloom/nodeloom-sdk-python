@@ -1,6 +1,9 @@
 """Tests for Anthropic Managed Agents integration."""
 import pytest
 from unittest.mock import MagicMock, patch
+
+from nodeloom import NodeLoom
+from nodeloom.api import ApiClient
 from nodeloom.integrations.anthropic import ManagedAgentsHandler
 
 
@@ -185,3 +188,42 @@ class TestSessionContext:
             ctx.on_event(event)
 
         span.set_output.assert_called_with({"text": "plain text response"})
+
+
+class TestIntegrationWithRealApiClient:
+    """Exercises the Anthropic handler through the real ApiClient so that
+    signature drift between the handler and the HTTP layer can't silently
+    regress. A prior version of the handler omitted team_id from the
+    check_guardrails call and raised TypeError at runtime — mocked tests
+    never caught it."""
+
+    @patch("nodeloom.api.requests.Session")
+    def test_check_input_reaches_backend_with_agent_name(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_response = MagicMock(ok=True, status_code=200)
+        mock_response.json.return_value = {
+            "passed": True,
+            "violations": [],
+            "redactedContent": None,
+            "checks": [],
+            "guardrailSessionId": "sess-abc",
+        }
+        mock_session.request.return_value = mock_response
+
+        # Minimal client that routes api() to a real ApiClient.
+        client = MagicMock()
+        client.api = ApiClient(api_key="sdk_test", endpoint="https://example.com")
+
+        handler = ManagedAgentsHandler(client, agent_name="anthropic-agent")
+        # The real call path must not raise even though team_id is omitted.
+        result = handler.check_input("hello world")
+        assert result["passed"] is True
+
+        # Verify the HTTP body carried the handler's agent_name so the backend
+        # can bind the guardrail session to that agent for HARD-mode checks.
+        body = mock_session.request.call_args.kwargs["json"]
+        assert body["agentName"] == "anthropic-agent"
+        # No team_id → no teamId query param; backend infers from SDK token.
+        params = mock_session.request.call_args.kwargs.get("params")
+        assert params is None or "teamId" not in (params or {})
