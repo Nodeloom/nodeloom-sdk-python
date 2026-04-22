@@ -24,6 +24,21 @@ class TestApiClient:
         client = ApiClient(api_key="sdk_test")
         assert client._endpoint == "https://api.nodeloom.io"
 
+    def test_default_timeout_is_30_seconds(self):
+        # Matches the Go/Java SDKs so behavior is consistent across languages.
+        # Without an explicit timeout, requests.Session.request would block
+        # forever on a hung backend.
+        client = ApiClient(api_key="sdk_test")
+        assert client._request_timeout_seconds == 30.0
+
+    def test_timeout_is_forwarded_to_session(self):
+        client = ApiClient(api_key="sdk_test", request_timeout_seconds=2.5)
+        mock_response = MagicMock(ok=True, status_code=200)
+        mock_response.json.return_value = {}
+        with patch.object(client._session, "request", return_value=mock_response) as mock_req:
+            client.request("GET", "/api/ping")
+        assert mock_req.call_args.kwargs["timeout"] == 2.5
+
 
 class TestApiRequest:
     """Test the generic request method."""
@@ -43,6 +58,7 @@ class TestApiRequest:
             url="https://api.nodeloom.io/api/workflows",
             json=None,
             params={"teamId": "t1"},
+            timeout=30.0,
         )
         assert result == [{"id": "wf-1", "name": "Test"}]
 
@@ -117,6 +133,7 @@ class TestConvenienceMethods:
             url="https://api.nodeloom.io/api/workflows",
             json=None,
             params={"teamId": "team-1"},
+            timeout=30.0,
         )
 
     def test_execute_workflow(self):
@@ -134,6 +151,7 @@ class TestConvenienceMethods:
             url="https://api.nodeloom.io/api/workflows/wf-1/execute",
             json={"query": "hello"},
             params=None,
+            timeout=30.0,
         )
 
     def test_get_execution(self):
@@ -151,6 +169,7 @@ class TestConvenienceMethods:
             url="https://api.nodeloom.io/api/executions/ex-1",
             json=None,
             params=None,
+            timeout=30.0,
         )
 
 

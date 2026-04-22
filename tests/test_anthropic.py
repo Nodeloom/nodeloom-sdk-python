@@ -1,6 +1,9 @@
 """Tests for Anthropic Managed Agents integration."""
 import pytest
 from unittest.mock import MagicMock, patch
+
+from nodeloom import NodeLoom
+from nodeloom.api import ApiClient
 from nodeloom.integrations.anthropic import ManagedAgentsHandler
 
 
@@ -112,6 +115,25 @@ class TestSessionContext:
 
         client.event.assert_called_once()
 
+    def test_guardrail_check_failure_is_logged_not_swallowed(self, caplog):
+        # A failing guardrail check during output handling must not crash the
+        # stream, but must also not disappear silently — it should log so
+        # operators can diagnose API/network issues in production.
+        import logging
+        client, trace, span = make_client()
+        client.api.check_guardrails.side_effect = RuntimeError("backend 503")
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=True)
+
+        with caplog.at_level(logging.DEBUG, logger="nodeloom.anthropic"):
+            with handler.trace_session("sess_fail") as ctx:
+                event = MockEvent("agent.message", content=[MockContentBlock("hello")])
+                ctx.on_event(event)
+
+        # Stream kept running; trace completed normally.
+        trace.end.assert_called_with(status="success", output={"text": "hello"})
+        # The exception was captured, not lost.
+        assert any("guardrail output check failed" in r.message for r in caplog.records)
+
     def test_context_handles_exception(self):
         client, trace, span = make_client()
         handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)
@@ -146,6 +168,39 @@ class TestSessionContext:
 
         # span.end() called once for tool_result (not during tool_use since it has an id)
         assert tool_span.end.call_count >= 1
+
+    def test_dangling_tool_span_ended_on_session_exit(self):
+        # If a tool_use arrives but the matching tool_result never comes
+        # before the session ends, the span would otherwise stay open.
+        # The drain path closes it so the trace's span tree is consistent.
+        client, trace, _ = make_client()
+        tool_span = MagicMock()
+        trace.span.return_value = tool_span
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)
+
+        with handler.trace_session("sess_dangling") as ctx:
+            ctx.on_event(MockEvent("agent.tool_use", name="bash", input={"cmd": "ls"}, id="tool_open"))
+            # no matching agent.tool_result — session ends with the span still active
+
+        assert tool_span.end.called, "dangling tool span should be closed on session exit"
+        # After drain, active spans dict is empty.
+        assert ctx._active_spans == {}
+
+    def test_dangling_tool_span_ended_on_exception(self):
+        # Same invariant but exercised through the exception path: tool span
+        # started, exception raised before tool_result — drain still runs.
+        client, trace, _ = make_client()
+        tool_span = MagicMock()
+        trace.span.return_value = tool_span
+        handler = ManagedAgentsHandler(client, agent_name="test", guardrails=False)
+
+        with pytest.raises(ValueError):
+            with handler.trace_session("sess_exc") as ctx:
+                ctx.on_event(MockEvent("agent.tool_use", name="bash", input={"cmd": "ls"}, id="tool_x"))
+                raise ValueError("stream aborted")
+
+        assert tool_span.end.called
+        trace.end.assert_called_with(status="error", output={"error": "stream aborted"})
 
     def test_trace_ends_with_success(self):
         client, trace, span = make_client()
@@ -185,3 +240,42 @@ class TestSessionContext:
             ctx.on_event(event)
 
         span.set_output.assert_called_with({"text": "plain text response"})
+
+
+class TestIntegrationWithRealApiClient:
+    """Exercises the Anthropic handler through the real ApiClient so that
+    signature drift between the handler and the HTTP layer can't silently
+    regress. A prior version of the handler omitted team_id from the
+    check_guardrails call and raised TypeError at runtime — mocked tests
+    never caught it."""
+
+    @patch("nodeloom.api.requests.Session")
+    def test_check_input_reaches_backend_with_agent_name(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_response = MagicMock(ok=True, status_code=200)
+        mock_response.json.return_value = {
+            "passed": True,
+            "violations": [],
+            "redactedContent": None,
+            "checks": [],
+            "guardrailSessionId": "sess-abc",
+        }
+        mock_session.request.return_value = mock_response
+
+        # Minimal client that routes api() to a real ApiClient.
+        client = MagicMock()
+        client.api = ApiClient(api_key="sdk_test", endpoint="https://example.com")
+
+        handler = ManagedAgentsHandler(client, agent_name="anthropic-agent")
+        # The real call path must not raise even though team_id is omitted.
+        result = handler.check_input("hello world")
+        assert result["passed"] is True
+
+        # Verify the HTTP body carried the handler's agent_name so the backend
+        # can bind the guardrail session to that agent for HARD-mode checks.
+        body = mock_session.request.call_args.kwargs["json"]
+        assert body["agentName"] == "anthropic-agent"
+        # No team_id → no teamId query param; backend infers from SDK token.
+        params = mock_session.request.call_args.kwargs.get("params")
+        assert params is None or "teamId" not in (params or {})

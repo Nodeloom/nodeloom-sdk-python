@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-SDK_VERSION = "0.8.0"
+SDK_VERSION = "0.10.0"
 SDK_LANGUAGE = "python"
 
 DEFAULT_ENDPOINT = "https://api.nodeloom.io"
@@ -13,6 +13,9 @@ DEFAULT_FLUSH_INTERVAL = 5.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_QUEUE_MAX_SIZE = 10000
 DEFAULT_TIMEOUT = 10.0
+# Control polling cadence. 0 disables the dedicated poll thread; the registry
+# still updates from telemetry batch responses.
+DEFAULT_CONTROL_POLL_INTERVAL = 60.0
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,10 @@ class NodeLoomConfig:
         queue_max_size: Upper bound on the in-memory event queue.
         timeout: HTTP request timeout in seconds.
         enabled: Global kill switch. When False, no events are sent.
+        control_poll_interval: Seconds between standalone control polls. The
+            registry is also updated from every telemetry batch response, so
+            polling is mostly useful for sparse-traffic agents. Set to 0 to
+            disable.
     """
 
     api_key: str
@@ -40,6 +47,7 @@ class NodeLoomConfig:
     queue_max_size: int = DEFAULT_QUEUE_MAX_SIZE
     timeout: float = DEFAULT_TIMEOUT
     enabled: bool = True
+    control_poll_interval: float = DEFAULT_CONTROL_POLL_INTERVAL
 
     def __repr__(self) -> str:
         masked_key = self.api_key[:6] + "***" if self.api_key and len(self.api_key) > 6 else "***"
@@ -66,3 +74,5 @@ class NodeLoomConfig:
             raise ValueError("queue_max_size must be at least 1")
         if self.timeout <= 0:
             raise ValueError("timeout must be positive")
+        if self.control_poll_interval < 0:
+            raise ValueError("control_poll_interval must be non-negative (0 disables polling)")

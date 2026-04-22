@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from nodeloom.config import NodeLoomConfig, SDK_VERSION, SDK_LANGUAGE
+from nodeloom.control import ControlRegistry
 
 logger = logging.getLogger("nodeloom.transport")
 
@@ -16,12 +17,19 @@ class HttpTransport:
 
     Uses exponential backoff with jitter for retries. All failures are
     logged but never raised, keeping the SDK fire-and-forget.
+
+    When the response includes a ``control`` field (the backend piggy-backs
+    the agent control state on every batch), the transport feeds it to the
+    shared :class:`ControlRegistry` so the trace-time halt check sees
+    fresh state without an extra round-trip.
     """
 
     TELEMETRY_PATH = "/api/sdk/v1/telemetry"
 
-    def __init__(self, config: NodeLoomConfig) -> None:
+    def __init__(self, config: NodeLoomConfig,
+                 control_registry: Optional[ControlRegistry] = None) -> None:
         self._config = config
+        self._control_registry = control_registry
         self._session = requests.Session()
         self._session.headers.update(
             {
@@ -74,6 +82,8 @@ class HttpTransport:
                                 err.get("index"),
                                 err.get("error"),
                             )
+                    if self._control_registry is not None and isinstance(body, dict):
+                        self._control_registry.update_from_payload(body.get("control"))
                     return body
 
                 # Retry on server errors (5xx) and 429 (rate limit).

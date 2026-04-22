@@ -26,8 +26,11 @@ Usage:
                     break
 """
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Optional
+
+logger = logging.getLogger("nodeloom.anthropic")
 
 
 class ManagedAgentsHandler:
@@ -59,21 +62,28 @@ class ManagedAgentsHandler:
         if self._agent_version:
             trace._agent_version = self._agent_version
 
-        ctx = _SessionContext(trace, self._client, self._guardrails)
+        ctx = _SessionContext(trace, self._client, self._guardrails, self._agent_name)
         try:
             yield ctx
         except Exception as e:
+            ctx._drain_active_spans()
             trace.end(status="error", output={"error": str(e)})
             raise
         else:
+            ctx._drain_active_spans()
             trace.end(status="success", output=ctx._last_output)
 
     def check_input(self, text: str, **kwargs) -> dict:
         """Run guardrail checks on input text before sending to the agent.
 
+        Always tags the check with the handler's agent_name so the backend
+        can bind the returned guardrail session id to this agent (required
+        for HARD-mode enforcement) and dispatch incident playbooks.
+
         Returns:
             Guardrail result dict with 'passed', 'violations', 'redactedContent'.
         """
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             detect_prompt_injection=True,
@@ -84,9 +94,12 @@ class ManagedAgentsHandler:
     def check_output(self, text: str, **kwargs) -> dict:
         """Run guardrail checks on agent output before showing to the user.
 
+        Same agent_name binding as :meth:`check_input`.
+
         Returns:
             Guardrail result dict with 'passed', 'violations', 'redactedContent'.
         """
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             redact_pii=True,
@@ -98,12 +111,23 @@ class ManagedAgentsHandler:
 class _SessionContext:
     """Internal context for tracking events within a session trace."""
 
-    def __init__(self, trace, client, guardrails: bool):
+    def __init__(self, trace, client, guardrails: bool, agent_name: str):
         self._trace = trace
         self._client = client
         self._guardrails = guardrails
+        self._agent_name = agent_name
         self._last_output = None
         self._active_spans = {}
+
+    def _drain_active_spans(self) -> None:
+        # End any tool spans whose matching agent.tool_result never arrived
+        # before ending the trace. Matches the Java and TypeScript handlers.
+        for span in self._active_spans.values():
+            try:
+                span.end()
+            except Exception:
+                logger.debug("failed to end dangling span during drain", exc_info=True)
+        self._active_spans.clear()
 
     def on_event(self, event) -> None:
         """Process an Anthropic SSE event and create appropriate spans.
@@ -131,6 +155,7 @@ class _SessionContext:
         """Run guardrail checks on input text."""
         if not self._guardrails:
             return {"passed": True, "violations": []}
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             detect_prompt_injection=True,
@@ -142,6 +167,7 @@ class _SessionContext:
         """Run guardrail checks on agent output."""
         if not self._guardrails:
             return {"passed": True, "violations": []}
+        kwargs.setdefault("agent_name", self._agent_name)
         return self._client.api.check_guardrails(
             text=text,
             redact_pii=True,
@@ -165,7 +191,7 @@ class _SessionContext:
                             "violations": result.get("violations", []),
                         })
                 except Exception:
-                    pass
+                    logger.debug("guardrail output check failed", exc_info=True)
         span.end()
 
     def _handle_tool_use(self, event):
