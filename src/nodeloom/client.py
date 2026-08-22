@@ -27,7 +27,7 @@ class NodeLoomClient:
         with client.trace("my-agent", input={"query": "hello"}) as t:
             with t.span("llm-call", type=SpanType.LLM) as s:
                 s.set_output({"text": "world"})
-                s.set_token_usage(prompt=10, completion=20, model="gpt-4o")
+                s.set_token_usage(prompt=10, completion=20, model="gpt-5.6-terra")
         client.shutdown()
 
     The client is thread-safe: multiple threads may create traces
