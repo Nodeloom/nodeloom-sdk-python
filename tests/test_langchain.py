@@ -261,7 +261,7 @@ class TestNodeLoomCallbackHandler(unittest.TestCase):
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
                 },
-                "model_name": "gpt-4o",
+                "model_name": "gpt-5.6-terra",
             },
         )
 
@@ -277,7 +277,7 @@ class TestNodeLoomCallbackHandler(unittest.TestCase):
         self.assertEqual(llm_events[0]["status"], "success")
         self.assertEqual(llm_events[0]["token_usage"]["prompt_tokens"], 10)
         self.assertEqual(llm_events[0]["token_usage"]["completion_tokens"], 5)
-        self.assertEqual(llm_events[0]["token_usage"]["model"], "gpt-4o")
+        self.assertEqual(llm_events[0]["token_usage"]["model"], "gpt-5.6-terra")
 
     def test_llm_end_without_token_usage(self):
         handler = self._make_handler()
@@ -584,7 +584,7 @@ class TestNodeLoomCallbackHandler(unittest.TestCase):
                     "input_tokens": 15,
                     "output_tokens": 25,
                 },
-                "model": "claude-3-opus",
+                "model": "claude-opus-5",
             },
         )
         handler.on_llm_end(response=llm_result, run_id=llm_run_id)
@@ -593,7 +593,7 @@ class TestNodeLoomCallbackHandler(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["token_usage"]["prompt_tokens"], 15)
         self.assertEqual(events[0]["token_usage"]["completion_tokens"], 25)
-        self.assertEqual(events[0]["token_usage"]["model"], "claude-3-opus")
+        self.assertEqual(events[0]["token_usage"]["model"], "claude-opus-5")
 
 
 if __name__ == "__main__":

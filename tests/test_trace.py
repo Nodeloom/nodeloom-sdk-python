@@ -296,20 +296,20 @@ class TestSpanSetters(unittest.TestCase):
 
     def test_set_token_usage(self):
         span = Span("op", trace_id="t1", queue=self.queue)
-        result = span.set_token_usage(prompt=100, completion=200, model="gpt-4o")
+        result = span.set_token_usage(prompt=100, completion=200, model="gpt-5.6-terra")
 
         self.assertIs(result, span)
 
     def test_set_token_usage_calculates_total(self):
         span = Span("op", trace_id="t1", queue=self.queue)
-        span.set_token_usage(prompt=100, completion=200, model="gpt-4o")
+        span.set_token_usage(prompt=100, completion=200, model="gpt-5.6-terra")
         span.end()
 
         event = self.queue.put.call_args[0][0]
         self.assertEqual(event["token_usage"]["prompt_tokens"], 100)
         self.assertEqual(event["token_usage"]["completion_tokens"], 200)
         self.assertEqual(event["token_usage"]["total_tokens"], 300)
-        self.assertEqual(event["token_usage"]["model"], "gpt-4o")
+        self.assertEqual(event["token_usage"]["model"], "gpt-5.6-terra")
 
     def test_set_token_usage_without_model(self):
         span = Span("op", trace_id="t1", queue=self.queue)
@@ -439,7 +439,7 @@ class TestNestedSpans(unittest.TestCase):
             ) as llm_span:
                 llm_span.set_input({"prompt": "test"})
                 llm_span.set_output({"text": "response"})
-                llm_span.set_token_usage(prompt=10, completion=20, model="gpt-4o")
+                llm_span.set_token_usage(prompt=10, completion=20, model="gpt-5.6-terra")
 
             chain_span.set_output({"result": "response"})
 

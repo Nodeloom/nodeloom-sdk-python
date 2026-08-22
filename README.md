@@ -46,7 +46,7 @@ with client.trace("my-agent", input={"query": "What is NodeLoom?"}) as trace:
         span.set_input({"messages": [{"role": "user", "content": "What is NodeLoom?"}]})
         # ... call your LLM ...
         span.set_output({"text": "NodeLoom is an AI agent operations platform."})
-        span.set_token_usage(prompt=15, completion=20, model="gpt-4o")
+        span.set_token_usage(prompt=15, completion=20, model="gpt-5.6-terra")
 
 client.shutdown()
 ```
@@ -73,7 +73,7 @@ with client.trace("my-agent") as trace:
     with trace.span("agent-step", type=SpanType.AGENT) as parent:
         with trace.span("llm-call", type=SpanType.LLM, parent_span_id=parent.span_id) as child:
             child.set_output({"response": "..."})
-            child.set_token_usage(prompt=10, completion=20, model="gpt-4o")
+            child.set_token_usage(prompt=10, completion=20, model="gpt-5.6-terra")
 ```
 
 ### Standalone Events
