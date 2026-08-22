@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 
 from nodeloom.batch_processor import BatchProcessor
-from nodeloom.config import NodeLoomConfig
+from nodeloom.config import NodeLoomConfig, SDK_VERSION
 from nodeloom.queue import TelemetryQueue
 from nodeloom.transport import HttpTransport
 
@@ -94,7 +94,7 @@ class TestHttpTransport(unittest.TestCase):
         call_kwargs = mock_session.post.call_args
         payload = call_kwargs[1]["json"]
         self.assertEqual(len(payload["events"]), 2)
-        self.assertEqual(payload["sdk_version"], "0.10.0")
+        self.assertEqual(payload["sdk_version"], SDK_VERSION)
         self.assertEqual(payload["sdk_language"], "python")
 
     @patch("nodeloom.transport.requests.Session")
