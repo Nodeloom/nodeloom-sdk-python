@@ -22,7 +22,7 @@ from nodeloom import NodeLoom, SpanType, TraceStatus
 NODELOOM_API_KEY = os.environ.get("NODELOOM_API_KEY", "sdk_...")
 NODELOOM_ENDPOINT = os.environ.get("NODELOOM_ENDPOINT", "https://api.nodeloom.io")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-5.6-luna"
 AGENT_NAME = "simple-qa-agent"
 AGENT_VERSION = "1.0.0"
 
